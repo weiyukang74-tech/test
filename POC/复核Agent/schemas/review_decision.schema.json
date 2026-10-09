@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fact_reviews",
+    "proposition_reviews",
+    "review_status",
+    "final_reason"
+  ],
+  "properties": {
+    "fact_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fact_id", "status", "evidence", "reason"],
+        "properties": {
+          "fact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["SUPPORTED", "NOT_SUPPORTED", "UNKNOWN", "CONFLICTED"]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evidence_type", "location", "quote"],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence_type": {
+                  "type": "string",
+                  "enum": ["STRUCTURED", "MEDICAL_DOCUMENT"]
+                },
+                "document_id": {
+                  "anyOf": [
+                    {"type": "string", "minLength": 1},
+                    {"type": "null"}
+                  ]
+                },
+                "location": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "proposition_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposition_id", "status", "reason"],
+        "properties": {
+          "proposition_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["SUPPORTED", "NOT_SUPPORTED", "UNKNOWN", "CONFLICTED"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["CLOSED", "OPEN", "BLOCKED", "CONFLICTED"]
+    },
+    "final_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "supplemental_evidence_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fact_id", "requested_data", "reason"],
+        "properties": {
+          "fact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requested_data": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requested_source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "manual_review_reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

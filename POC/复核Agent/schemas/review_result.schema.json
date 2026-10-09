@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rule_id",
+    "mdtrt_id",
+    "review_round",
+    "proposition_relation",
+    "fact_reviews",
+    "proposition_reviews",
+    "overall_logic_status",
+    "review_status",
+    "case_status",
+    "final_conclusion",
+    "supplemental_evidence_requests"
+  ],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mdtrt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "proposition_relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "expression", "basis_quotes"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["CONFIRMED", "AMBIGUOUS"]
+        },
+        "expression": {
+          "type": "string"
+        },
+        "basis_quotes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "fact_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposition_id",
+          "一级证据域",
+          "二级证据标签",
+          "target_fact",
+          "necessity",
+          "status",
+          "evidence",
+          "reason"
+        ],
+        "properties": {
+          "proposition_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "一级证据域": {
+            "type": "string",
+            "minLength": 1
+          },
+          "二级证据标签": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_fact": {
+            "type": "string",
+            "minLength": 1
+          },
+          "necessity": {
+            "type": "string",
+            "enum": ["REQUIRED", "SUPPLEMENTARY"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["SUPPORTED", "NOT_SUPPORTED", "UNKNOWN", "CONFLICTED"]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "evidence_type",
+                "location",
+                "quote"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence_type": {
+                  "type": "string",
+                  "enum": ["STRUCTURED", "MEDICAL_DOCUMENT"]
+                },
+                "document_id": {
+                  "anyOf": [
+                    {"type": "string", "minLength": 1},
+                    {"type": "null"}
+                  ]
+                },
+                "location": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quote": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "proposition_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposition_id", "status", "reason"],
+        "properties": {
+          "proposition_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["SUPPORTED", "NOT_SUPPORTED", "UNKNOWN", "CONFLICTED"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "overall_logic_status": {
+      "type": "string",
+      "enum": ["SUPPORTED", "NOT_SUPPORTED", "UNKNOWN", "CONFLICTED"]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["CLOSED", "OPEN", "BLOCKED", "CONFLICTED"]
+    },
+    "case_status": {
+      "type": "string",
+      "enum": ["复核完成", "待补充证据", "数据阻断", "证据冲突", "待人工终审"]
+    },
+    "final_conclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "is_final", "reason"],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": ["合规", "违规", "暂无法判定", "待人工终审"]
+        },
+        "is_final": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "supplemental_evidence_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposition_id",
+          "target_fact",
+          "requested_data",
+          "reason"
+        ],
+        "properties": {
+          "proposition_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_fact": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requested_data": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requested_source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "manual_review_reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

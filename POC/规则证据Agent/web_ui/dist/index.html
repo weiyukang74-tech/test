@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="医保负面清单规则拆解 Agent 本地工作台" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d4ed8'/%3E%3Cpath d='M18 17h28v30H18z' fill='white'/%3E%3Cpath d='M24 25h16M24 32h16M24 39h10' stroke='%231d4ed8' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>规则拆解工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">医保负面清单 POC</p>
+        <h1>规则拆解工作台</h1>
+      </div>
+      <div class="run-status" id="runStatus" data-state="idle" aria-live="polite">
+        <span class="status-dot"></span>
+        <span id="runStatusText">正在读取状态</span>
+      </div>
+    </header>
+
+    <section class="control-strip" aria-label="运行配置">
+      <div class="control-group">
+        <span class="control-label">思考模式</span>
+        <label class="switch">
+          <input type="checkbox" id="thinkingToggle" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span id="thinkingLabel">关闭</span>
+        </label>
+      </div>
+
+      <fieldset class="control-group mode-group">
+        <legend class="control-label">写入方式</legend>
+        <label class="mode-option">
+          <input type="radio" name="writeMode" value="append" checked />
+          <span><strong>追加</strong><small>跳过已有规则</small></span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="writeMode" value="overwrite" />
+          <span><strong>全部更新</strong><small>重新拆解已有规则</small></span>
+        </label>
+      </fieldset>
+
+      <div class="control-actions">
+        <button class="button secondary" id="refreshButton" type="button">刷新结果</button>
+        <button class="button primary" id="runButton" type="button">运行拆解 Agent</button>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="规则统计">
+      <div><span>规则总数</span><strong id="totalCount">—</strong></div>
+      <div><span>已拆解</span><strong id="doneCount">—</strong></div>
+      <div><span>待拆解</span><strong id="pendingCount">—</strong></div>
+    </section>
+
+    <main class="workspace">
+      <aside class="panel rules-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">规则库</p>
+            <h2>拆解结果</h2>
+          </div>
+          <span id="visibleCount" class="muted-count"></span>
+        </div>
+        <label class="search-box">
+          <span class="sr-only">搜索规则</span>
+          <input id="ruleSearch" type="search" placeholder="搜索编号或规则内容" />
+        </label>
+        <div class="rule-list" id="ruleList" aria-label="规则列表"></div>
+      </aside>
+
+      <section class="panel detail-panel" aria-labelledby="detailTitle">
+        <div id="detailEmpty" class="empty-state">
+          <span class="empty-mark">{ }</span>
+          <h2>选择一条规则查看拆解逻辑</h2>
+          <p>这里会展示原始规则、原子事实、逻辑表达式、时间要求和待澄清项。</p>
+        </div>
+        <div id="detailContent" hidden>
+          <div class="panel-heading detail-heading">
+            <div>
+              <p class="section-kicker" id="detailRuleId"></p>
+              <h2 id="detailTitle">判定条件</h2>
+            </div>
+            <div class="detail-actions">
+              <span class="badge" id="detailState"></span>
+              <button class="text-button" id="editRuleButton" type="button">编辑 JSON</button>
+            </div>
+          </div>
+
+          <div class="source-rule">
+            <span>规则原文</span>
+            <p id="detailRuleText"></p>
+          </div>
+
+          <section class="detail-section">
+            <div class="section-title-row">
+              <h3>原子事实</h3>
+              <span id="factCount"></span>
+            </div>
+            <div class="fact-list" id="factList"></div>
+          </section>
+
+          <section class="detail-section logic-section">
+            <h3>逻辑表达式</h3>
+            <code id="logicExpression"></code>
+          </section>
+
+          <section class="detail-grid">
+            <div class="detail-section compact">
+              <h3>时间要求</h3>
+              <p id="timeRequirements"></p>
+            </div>
+            <div class="detail-section compact">
+              <h3>待澄清项</h3>
+              <ul id="unresolvedList"></ul>
+            </div>
+          </section>
+
+          <section class="rule-editor" id="ruleEditorSection" hidden>
+            <div class="section-title-row">
+              <div>
+                <h3>编辑拆解结果</h3>
+                <p>可直接修改模型输出的完整 JSON。</p>
+              </div>
+            </div>
+            <textarea id="ruleEditor" spellcheck="false" aria-label="规则拆解 JSON 编辑器"></textarea>
+            <div class="editor-actions">
+              <button class="button secondary" id="downloadRuleButton" type="button">下载 JSON</button>
+              <button class="button secondary" id="cancelRuleEditButton" type="button">取消</button>
+              <button class="button primary" id="saveRuleButton" type="button">保存规则</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <aside class="panel prompt-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">模型配置</p>
+            <h2>系统提示词</h2>
+          </div>
+          <span id="promptState" class="save-state">已同步</span>
+        </div>
+        <p class="panel-note">保存后，下一次模型调用会直接使用这里的内容。</p>
+        <textarea id="promptEditor" spellcheck="false" aria-label="系统提示词编辑器"></textarea>
+        <div class="prompt-footer">
+          <span id="promptLength">0 字</span>
+          <button class="button secondary" id="savePromptButton" type="button">保存提示词</button>
+        </div>
+      </aside>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuleEvidencePlanningResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "source", "regulatory_claim", "appealability", "appeal_objective", "appeal_propositions", "logical_expression", "program_checks"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["READY", "PARTIAL", "AMBIGUOUS", "NO_CLEAR_APPEAL_PATH", "CONTEXT_INSUFFICIENT"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["violation_item", "violation_description"],
+      "properties": {
+        "violation_item": {"type": "string"},
+        "violation_description": {"type": "string"}
+      }
+    },
+    "regulatory_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement"],
+      "properties": {"statement": {"type": "string"}}
+    },
+    "appealability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["explanation"],
+      "properties": {"explanation": {"type": "string"}}
+    },
+    "appeal_objective": {"type": "string"},
+    "appeal_propositions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposition_id", "statement", "logic_notes", "mapping_status", "required_tags", "supplementary_tags", "missing_required_facts"],
+        "properties": {
+          "proposition_id": {"type": "string"},
+          "statement": {"type": "string"},
+          "logic_notes": {"type": "string"},
+          "mapping_status": {"type": "string", "enum": ["matched", "evidence_insufficient"]},
+          "required_tags": {"$ref": "#/$defs/requiredTags"},
+          "supplementary_tags": {"$ref": "#/$defs/supplementaryTags"},
+          "missing_required_facts": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "logical_expression": {"type": "string", "minLength": 1},
+    "program_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "inputs_required", "reason"],
+        "properties": {
+          "check": {"type": "string"},
+          "inputs_required": {"type": "array", "items": {"type": "string"}},
+          "reason": {"type": "string"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "requiredTags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["一级证据域", "二级证据标签", "target_fact", "necessity"],
+        "properties": {
+          "一级证据域": {"type": "string"},
+          "二级证据标签": {"type": "string"},
+          "target_fact": {"type": "string"},
+          "necessity": {"const": "REQUIRED"}
+        }
+      }
+    },
+    "supplementaryTags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["一级证据域", "二级证据标签", "target_fact", "necessity"],
+        "properties": {
+          "一级证据域": {"type": "string"},
+          "二级证据标签": {"type": "string"},
+          "target_fact": {"type": "string"},
+          "necessity": {"const": "SUPPLEMENTARY"}
+        }
+      }
+    }
+  }
+}

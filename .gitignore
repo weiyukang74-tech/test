@@ -1,0 +1,42 @@
+# Local credentials and environment overrides
+.env
+!.env.example
+
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Temporary and generated runtime files
+*.tmp
+*.log
+*.bak
+*.swp
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local environments and Office temporary files
+.venv/
+venv/
+node_modules/
+~$*
+
+# Local patient data and private input documents
+/datat/*
+!/datat/标准病历视图.xlsx
+/POC/负面清单/
+/POC/新建文件夹/
+/POC/医保基金智能监管系统对接文档-202609.docx
+
+# Generated agent results and patient context snapshots
+/POC/规则证据结果/
+/POC/查询规划结果/
+/POC/查询结果/
+/POC/复核结果/
+/POC/对比验证/
+/POC/规则证据Agent/web_ui/dist/data/
