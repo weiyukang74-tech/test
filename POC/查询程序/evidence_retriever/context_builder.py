@@ -44,6 +44,18 @@ def _remove_empty_values(value: Any) -> Any:
     return value
 
 
+def _remove_evidence_labels(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _remove_evidence_labels(item)
+            for key, item in value.items()
+            if key not in {"一级证据域", "二级证据标签"}
+        }
+    if isinstance(value, list):
+        return [_remove_evidence_labels(item) for item in value]
+    return value
+
+
 class MedicalDocumentCollector:
     def __init__(self) -> None:
         self.documents: list[dict[str, Any]] = []
@@ -309,7 +321,9 @@ def _build_rule_context(
             raise ValueError(f"规则证据中不存在申诉命题：{proposition_id}")
         metadata = _tag_metadata(source_proposition)
         evidence: list[dict[str, Any]] = []
-        for query_evidence in query_proposition.get("evidence", []):
+        for fact_index, query_evidence in enumerate(
+            query_proposition.get("evidence", []), start=1
+        ):
             key = _tag_key(query_evidence)
             if key not in metadata:
                 raise ValueError(
@@ -318,8 +332,7 @@ def _build_rule_context(
                 )
             evidence.append(
                 {
-                    "一级证据域": key[0],
-                    "二级证据标签": key[1],
+                    "fact_id": f"{proposition_id}-F{fact_index:02d}",
                     "target_fact": key[2],
                     "necessity": metadata[key]["necessity"],
                     "query_result": _compact_query_result(
@@ -385,7 +398,7 @@ def _build_rule_context(
     }
     if isinstance(medical_filter, dict):
         context["medical_record_filter"] = medical_filter
-    return context
+    return _remove_evidence_labels(context)
 
 
 def build_review_context(

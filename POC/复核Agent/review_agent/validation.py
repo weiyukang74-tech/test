@@ -200,12 +200,10 @@ def _require_exact_keys(value: dict[str, Any], expected: set[str], label: str) -
         raise ReviewValidationError(f"{label}字段不正确，缺少={missing}，多余={extra}")
 
 
-def _fact_key(proposition_id: str, fact: dict[str, Any]) -> tuple[str, str, str, str]:
+def _fact_key(proposition_id: str, fact: dict[str, Any]) -> tuple[str, str]:
     return (
         proposition_id,
-        str(fact.get("一级证据域", "")).strip(),
-        str(fact.get("二级证据标签", "")).strip(),
-        str(fact.get("target_fact", "")).strip(),
+        str(fact.get("fact_id", "")).strip(),
     )
 
 
@@ -218,7 +216,9 @@ def validate_context(context: dict[str, Any]) -> None:
         raise ReviewValidationError("propositions不能为空")
 
     proposition_ids: set[str] = set()
-    fact_keys: set[tuple[str, str, str, str]] = set()
+    fact_keys: set[tuple[str, str]] = set()
+    fact_ids: set[str] = set()
+    legacy_fact_keys: set[tuple[str, str, str, str]] = set()
     all_document_refs: set[str] = set()
     all_summary_refs: set[str] = set()
     all_structured_refs: set[str] = set()
@@ -235,11 +235,31 @@ def validate_context(context: dict[str, Any]) -> None:
             proposition.get("evidence"),
             f"{proposition_id}.evidence",
         )
-        for raw_evidence in evidence_items:
+        for fact_index, raw_evidence in enumerate(evidence_items, start=1):
             evidence = _require_object(raw_evidence, f"{proposition_id}.evidence项")
-            key = _fact_key(proposition_id, evidence)
-            if not all(key):
-                raise ReviewValidationError(f"{proposition_id}存在标签或target_fact为空")
+            if "fact_id" not in evidence:
+                primary = _require_nonempty_string(evidence.get("一级证据域"), "一级证据域")
+                secondary = _require_nonempty_string(evidence.get("二级证据标签"), "二级证据标签")
+                legacy_key = (
+                    proposition_id,
+                    primary.strip(),
+                    secondary.strip(),
+                    str(evidence.get("target_fact", "")).strip(),
+                )
+                if legacy_key in legacy_fact_keys:
+                    raise ReviewValidationError(f"事实项重复: {legacy_key}")
+                legacy_fact_keys.add(legacy_key)
+            fact_id = _require_nonempty_string(
+                evidence.get("fact_id", f"{proposition_id}-F{fact_index:02d}"),
+                f"{proposition_id}.fact_id",
+            )
+            if fact_id != fact_id.strip():
+                raise ReviewValidationError("fact_id不得包含首尾空白")
+            _require_nonempty_string(evidence.get("target_fact"), "target_fact")
+            key = (proposition_id, fact_id)
+            if fact_id in fact_ids:
+                raise ReviewValidationError(f"fact_id重复: {fact_id}")
+            fact_ids.add(fact_id)
             if key in fact_keys:
                 raise ReviewValidationError(f"事实项重复: {key}")
             fact_keys.add(key)
@@ -369,19 +389,23 @@ def validate_context(context: dict[str, Any]) -> None:
 
 def _context_indexes(context: dict[str, Any]) -> tuple[
     dict[str, dict[str, Any]],
-    dict[tuple[str, str, str, str], dict[str, Any]],
+    dict[tuple[str, str], dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, str]],
 ]:
     propositions: dict[str, dict[str, Any]] = {}
-    facts: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    facts: dict[tuple[str, str], dict[str, Any]] = {}
     for proposition in context["propositions"]:
         proposition_id = proposition["proposition_id"]
         propositions[proposition_id] = proposition
-        for fact in proposition["evidence"]:
-            facts[_fact_key(proposition_id, fact)] = fact
+        for fact_index, fact in enumerate(proposition["evidence"], start=1):
+            indexed_fact = {
+                **fact,
+                "fact_id": fact.get("fact_id", f"{proposition_id}-F{fact_index:02d}"),
+            }
+            facts[_fact_key(proposition_id, indexed_fact)] = indexed_fact
     documents = {
         document["document_id"]: document
         for document in context["medical_documents"]
@@ -671,6 +695,38 @@ def _structured_data(
     return []
 
 
+def expand_grouped_evidence(evidence_items: Any) -> list[dict[str, Any]]:
+    if not isinstance(evidence_items, list):
+        raise ReviewValidationError("evidence必须是对象数组")
+    expanded: list[dict[str, Any]] = []
+    for evidence in evidence_items:
+        if not isinstance(evidence, dict):
+            raise ReviewValidationError("evidence项必须是对象")
+        if "quotes" not in evidence:
+            expanded.append(dict(evidence))
+            continue
+        if "quote" in evidence:
+            raise ReviewValidationError("evidence不能同时填写quote和quotes")
+        if evidence.get("evidence_type") != "STRUCTURED":
+            raise ReviewValidationError("quotes仅支持STRUCTURED证据")
+        _require_nonempty_string(evidence.get("source"), "evidence.source")
+        _require_nonempty_string(evidence.get("location"), "evidence.location")
+        if evidence.get("document_id") is not None:
+            raise ReviewValidationError("STRUCTURED证据不得填写document_id")
+        quotes = evidence["quotes"]
+        if not isinstance(quotes, list) or not quotes:
+            raise ReviewValidationError("evidence.quotes必须是非空字符串数组")
+        for quote in quotes:
+            _require_nonempty_string(quote, "evidence.quotes项")
+            expanded.append(
+                {
+                    **{key: value for key, value in evidence.items() if key != "quotes"},
+                    "quote": quote,
+                }
+            )
+    return expanded
+
+
 def _validate_evidence_quote(
     evidence: dict[str, Any],
     fact_context: dict[str, Any],
@@ -732,8 +788,7 @@ def _validate_evidence_quote(
 
     if not _source_matches(source, available_sources):
         fact_label = (
-            f"{fact_context.get('一级证据域')}/"
-            f"{fact_context.get('二级证据标签')}/"
+            f"{fact_context.get('fact_id')}/"
             f"{fact_context.get('target_fact')}"
         )
         raise ReviewValidationError(
@@ -808,13 +863,12 @@ def validate_result(
         raise ReviewValidationError("AMBIGUOUS时expression必须为空字符串")
 
     fact_reviews = _require_list(result.get("fact_reviews"), "fact_reviews")
-    reviewed_fact_keys: set[tuple[str, str, str, str]] = set()
+    reviewed_fact_keys: set[tuple[str, str]] = set()
     for raw_review in fact_reviews:
         review = _require_object(raw_review, "fact_reviews项")
         expected_keys = {
             "proposition_id",
-            "一级证据域",
-            "二级证据标签",
+            "fact_id",
             "target_fact",
             "necessity",
             "status",
@@ -823,6 +877,7 @@ def validate_result(
         }
         _require_exact_keys(review, expected_keys, "fact_reviews项")
         proposition_id = _require_nonempty_string(review.get("proposition_id"), "proposition_id")
+        _require_nonempty_string(review.get("fact_id"), "fact_id")
         key = _fact_key(proposition_id, review)
         fact_context = facts.get(key)
         if fact_context is None:
@@ -830,12 +885,16 @@ def validate_result(
         if key in reviewed_fact_keys:
             raise ReviewValidationError(f"模型重复输出事实项: {key}")
         reviewed_fact_keys.add(key)
+        if review.get("target_fact") != fact_context.get("target_fact"):
+            raise ReviewValidationError(f"事实项target_fact被修改: {key}")
         if review.get("necessity") != fact_context.get("necessity"):
             raise ReviewValidationError(f"事实项necessity被修改: {key}")
         fact_status = review.get("status")
         if fact_status not in FACT_STATUSES:
             raise ReviewValidationError(f"事实状态无效: {fact_status}")
-        evidence_items = _require_list(review.get("evidence"), f"{key}.evidence")
+        evidence_items = expand_grouped_evidence(
+            _require_list(review.get("evidence"), f"{key}.evidence")
+        )
         if fact_status in {"SUPPORTED", "NOT_SUPPORTED", "CONFLICTED"} and not evidence_items:
             raise ReviewValidationError(f"{fact_status}事实必须引用证据: {key}")
         if fact_status == "CONFLICTED" and len(evidence_items) < 2:
@@ -924,7 +983,10 @@ def validate_result(
         )
         proposition_id = _require_nonempty_string(request.get("proposition_id"), "request.proposition_id")
         target_fact = _require_nonempty_string(request.get("target_fact"), "request.target_fact")
-        if not any(key[0] == proposition_id and key[3] == target_fact for key in facts):
+        if not any(
+            key[0] == proposition_id and fact.get("target_fact") == target_fact
+            for key, fact in facts.items()
+        ):
             raise ReviewValidationError("补充证据请求没有对应事实项")
         _require_nonempty_string(request.get("requested_data"), "requested_data")
         requested_source = request.get("requested_source")

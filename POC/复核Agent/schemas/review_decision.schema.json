@@ -29,7 +29,18 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["evidence_type", "location", "quote"],
+              "required": ["evidence_type", "location"],
+              "anyOf": [
+                {
+                  "required": ["quote"],
+                  "not": {"required": ["quotes"]}
+                },
+                {
+                  "required": ["source", "quotes"],
+                  "properties": {"evidence_type": {"const": "STRUCTURED"}},
+                  "not": {"required": ["quote"]}
+                }
+              ],
               "properties": {
                 "source": {
                   "type": "string",
@@ -52,6 +63,11 @@
                 "quote": {
                   "type": "string",
                   "minLength": 1
+                },
+                "quotes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {"type": "string", "minLength": 1}
                 }
               }
             }

@@ -18,6 +18,7 @@ from .validation import (
     ExpressionParser,
     ReviewValidationError,
     _find_location_values,
+    _fact_key,
     _context_indexes,
     _medical_quote_locations,
     _medical_quote_matches_source,
@@ -28,6 +29,7 @@ from .validation import (
     _structured_data,
     _validate_evidence_quote,
     evaluate_expression,
+    expand_grouped_evidence,
     expand_medical_record_content,
     validate_context,
     validate_result,
@@ -102,8 +104,31 @@ class ReviewService:
         self._complete_deterministic_fields(result)
         print("整体状态计算完成，开始最终结果校验", flush=True)
         validate_result(result, context, review_round)
+        self._group_structured_evidence(result)
+        validate_result(result, context, review_round)
         print("最终结果校验完成", flush=True)
         return result
+
+    @staticmethod
+    def _group_structured_evidence(result: dict[str, Any]) -> None:
+        for fact_review in result.get("fact_reviews", []):
+            evidence_items = expand_grouped_evidence(fact_review.get("evidence", []))
+            grouped: list[dict[str, Any]] = []
+            groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for evidence in evidence_items:
+                if evidence.get("evidence_type") != "STRUCTURED":
+                    grouped.append(evidence)
+                    continue
+                key = (evidence["source"], evidence["evidence_type"], evidence["location"])
+                previous = groups.get(key)
+                if previous is None:
+                    groups[key] = evidence
+                    grouped.append(evidence)
+                else:
+                    if "quotes" not in previous:
+                        previous["quotes"] = [previous.pop("quote")]
+                    previous["quotes"].append(evidence["quote"])
+            fact_review["evidence"] = grouped
 
     @staticmethod
     def _fact_definitions(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -117,10 +142,10 @@ class ReviewService:
                 start=1,
             ):
                 if isinstance(fact, dict):
-                    definitions[f"{proposition_id}-F{fact_index:02d}"] = {
+                    fact_id = fact.get("fact_id", f"{proposition_id}-F{fact_index:02d}")
+                    definitions[fact_id] = {
                         "proposition_id": proposition_id,
-                        "一级证据域": fact.get("一级证据域"),
-                        "二级证据标签": fact.get("二级证据标签"),
+                        "fact_id": fact_id,
                         "target_fact": fact.get("target_fact"),
                         "necessity": fact.get("necessity"),
                     }
@@ -155,7 +180,7 @@ class ReviewService:
                 {
                     **definition,
                     "status": decision.get("status"),
-                    "evidence": decision.get("evidence", []),
+                    "evidence": expand_grouped_evidence(decision.get("evidence", [])),
                     "reason": decision.get("reason"),
                 }
             )
@@ -317,12 +342,7 @@ class ReviewService:
         for fact_index, fact_review in enumerate(fact_reviews):
             if not isinstance(fact_review, dict):
                 continue
-            fact_key = (
-                str(fact_review.get("proposition_id", "")).strip(),
-                str(fact_review.get("一级证据域", "")).strip(),
-                str(fact_review.get("二级证据标签", "")).strip(),
-                str(fact_review.get("target_fact", "")).strip(),
-            )
+            fact_key = _fact_key(str(fact_review.get("proposition_id", "")).strip(), fact_review)
             fact_context = facts.get(fact_key)
             evidence_items = fact_review.get("evidence")
             if fact_context is None or not isinstance(evidence_items, list):
@@ -392,9 +412,8 @@ class ReviewService:
             "issue_id": issue["issue_id"],
             "fact": {
                 "proposition_id": issue["fact_key"][0],
-                "一级证据域": issue["fact_key"][1],
-                "二级证据标签": issue["fact_key"][2],
-                "target_fact": issue["fact_key"][3],
+                "fact_id": issue["fact_key"][1],
+                "target_fact": fact_context.get("target_fact"),
                 "status": issue.get("fact_status"),
                 "reason": issue.get("fact_reason"),
             },
@@ -543,7 +562,7 @@ class ReviewService:
                 isinstance(item, dict) for item in evidence_items
             ):
                 raise ReviewValidationError(f"{issue_id}.evidence必须是对象数组")
-            replacements[issue_id] = [dict(item) for item in evidence_items]
+            replacements[issue_id] = expand_grouped_evidence(evidence_items)
 
         issue_by_position = {
             (issue["fact_index"], issue["evidence_index"]): issue
@@ -686,21 +705,7 @@ class ReviewService:
         context: dict[str, Any],
     ) -> None:
         """Split combined structured quotes into real field values when safe."""
-        fact_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-        for proposition in context.get("propositions", []):
-            if not isinstance(proposition, dict):
-                continue
-            proposition_id = str(proposition.get("proposition_id", ""))
-            for fact in proposition.get("evidence", []):
-                if not isinstance(fact, dict):
-                    continue
-                key = (
-                    proposition_id,
-                    str(fact.get("一级证据域", "")),
-                    str(fact.get("二级证据标签", "")),
-                    str(fact.get("target_fact", "")),
-                )
-                fact_index[key] = fact
+        _, fact_index, _, _, _, _ = _context_indexes(context)
 
         structured_pool = context.get("structured_data_pool", {})
         summary_pool = context.get("expense_summary_pool", {})
@@ -712,12 +717,7 @@ class ReviewService:
         for fact_review in result.get("fact_reviews", []):
             if not isinstance(fact_review, dict):
                 continue
-            key = (
-                str(fact_review.get("proposition_id", "")),
-                str(fact_review.get("一级证据域", "")),
-                str(fact_review.get("二级证据标签", "")),
-                str(fact_review.get("target_fact", "")),
-            )
+            key = _fact_key(str(fact_review.get("proposition_id", "")), fact_review)
             fact_context = fact_index.get(key)
             evidence_items = fact_review.get("evidence")
             if fact_context is None or not isinstance(evidence_items, list):
@@ -808,23 +808,7 @@ class ReviewService:
         context: dict[str, Any],
     ) -> None:
         """Correct or split medical evidence only when every quote is verifiable."""
-        _, _, documents, _, _, fragment_pool = _context_indexes(context)
-        fact_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-        for proposition in context.get("propositions", []):
-            if not isinstance(proposition, dict):
-                continue
-            proposition_id = str(proposition.get("proposition_id", ""))
-            for fact in proposition.get("evidence", []):
-                if not isinstance(fact, dict):
-                    continue
-                fact_index[
-                    (
-                        proposition_id,
-                        str(fact.get("一级证据域", "")),
-                        str(fact.get("二级证据标签", "")),
-                        str(fact.get("target_fact", "")),
-                    )
-                ] = fact
+        _, fact_index, documents, _, _, fragment_pool = _context_indexes(context)
         fact_reviews = result.get("fact_reviews")
         if not isinstance(fact_reviews, list):
             return
@@ -832,12 +816,7 @@ class ReviewService:
             if not isinstance(fact_review, dict):
                 continue
             fact_context = fact_index.get(
-                (
-                    str(fact_review.get("proposition_id", "")),
-                    str(fact_review.get("一级证据域", "")),
-                    str(fact_review.get("二级证据标签", "")),
-                    str(fact_review.get("target_fact", "")),
-                )
+                _fact_key(str(fact_review.get("proposition_id", "")), fact_review)
             )
             query_result = (
                 fact_context.get("query_result", {})
