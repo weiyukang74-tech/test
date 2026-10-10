@@ -732,35 +732,11 @@ class RetrievalService:
             medins_id,
             mdtrt_id,
         )
-        execute_secondary = secondary_mode == "always" or (
-            secondary_mode == "auto" and self._needs_secondary(primary_attempts)
-        )
+        execute_secondary = secondary_mode != "deferred"
         keyword_scope_unresolved = query_plan is None and any(
             route.view_name in KEYWORD_VIEWS
             for route in [*primary_routes, *route_groups["SECONDARY"]]
         )
-        if secondary_mode == "auto" and keyword_scope_unresolved:
-            execute_secondary = True
-        if secondary_mode == "auto" and query_plan is not None:
-            planned_primary_found = False
-            for attempt in primary_attempts:
-                if (
-                    attempt["status"] != "FOUND"
-                    or attempt["route"].view_name != "费用明细"
-                ):
-                    continue
-                formatted, _ = self._format_structured_records(
-                    attempt["route"],
-                    primary_domain,
-                    secondary_tag,
-                    target_fact,
-                    attempt["records"],
-                    query_plan,
-                )
-                if formatted:
-                    planned_primary_found = True
-                    break
-            execute_secondary = execute_secondary or not planned_primary_found
         secondary_attempts = []
         if execute_secondary:
             secondary_attempts = self._run_routes(
@@ -793,7 +769,7 @@ class RetrievalService:
         successful_secondary = [
             attempt for attempt in secondary_attempts if attempt_has_relevant_data(attempt)
         ]
-        successful_attempts = successful_primary or successful_secondary
+        successful_attempts = successful_primary + successful_secondary
         all_attempts = primary_attempts + secondary_attempts
 
         source_attempts = successful_attempts or all_attempts
@@ -805,19 +781,62 @@ class RetrievalService:
         ) or None
 
         data: list[dict[str, object]] = []
+        source_groups: list[dict[str, Any]] = []
+        source_group_index: dict[tuple[str, str], dict[str, Any]] = {}
         matched_by: dict[str, Any] | None = None
 
-        for attempt in successful_attempts:
+        for attempt in all_attempts:
             route = attempt["route"]
-            formatted, current_match = self._format_structured_records(
-                route,
-                primary_domain,
-                secondary_tag,
-                target_fact,
-                attempt["records"],
-                query_plan,
-            )
-            data.extend(formatted)
+            formatted: list[dict[str, object]] = []
+            current_match = None
+            if attempt_has_relevant_data(attempt):
+                formatted, current_match = self._format_structured_records(
+                    route,
+                    primary_domain,
+                    secondary_tag,
+                    target_fact,
+                    attempt["records"],
+                    query_plan,
+                )
+            source_entry = {
+                "source": self._source_label(route),
+                "source_level": route.source_level,
+            }
+            group_scope_unresolved = query_plan is None and route.view_name in KEYWORD_VIEWS
+            source_group = {
+                **source_entry,
+                "status": (
+                    "RETRIEVED" if formatted
+                    else "QUERY_SCOPE_UNRESOLVED" if group_scope_unresolved
+                    else "NOT_RETRIEVED"
+                ),
+            }
+            if group_scope_unresolved:
+                source_group["query_scope_status"] = "QUERY_SCOPE_UNRESOLVED"
+                source_group["query_scope_reason"] = "当前事实没有可安全执行的关键词计划，未返回该来源全量数据"
+            source_group_key = (source_entry["source"], source_entry["source_level"])
+            existing_group = source_group_index.get(source_group_key)
+            if existing_group is None:
+                source_group_index[source_group_key] = source_group
+                source_groups.append(source_group)
+            else:
+                if source_group["status"] == "RETRIEVED":
+                    existing_group["status"] = "RETRIEVED"
+                elif (
+                    source_group["status"] == "QUERY_SCOPE_UNRESOLVED"
+                    and existing_group["status"] == "NOT_RETRIEVED"
+                ):
+                    existing_group["status"] = "QUERY_SCOPE_UNRESOLVED"
+                if source_group.get("query_scope_status") == "QUERY_SCOPE_UNRESOLVED":
+                    existing_group["query_scope_status"] = "QUERY_SCOPE_UNRESOLVED"
+                    reasons = [
+                        str(existing_group.get("query_scope_reason", "")),
+                        str(source_group.get("query_scope_reason", "")),
+                    ]
+                    existing_group["query_scope_reason"] = "；".join(
+                        dict.fromkeys(reason for reason in reasons if reason)
+                    )
+            data.extend({**record, "_query_sources": [source_entry]} for record in formatted)
             if current_match is not None:
                 matched_by = current_match
 
@@ -830,6 +849,7 @@ class RetrievalService:
                 else "NOT_RETRIEVED"
             ),
             "source": source,
+            "source_groups": source_groups,
         }
         if keyword_scope_unresolved:
             query_result["query_scope_status"] = "QUERY_SCOPE_UNRESOLVED"
@@ -856,7 +876,7 @@ class RetrievalService:
         rule_id: str | None = None,
         proposition_id: str | None = None,
         include_supplementary: bool = True,
-        secondary_mode: str = "auto",
+        secondary_mode: str = "always",
         query_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.query_cache.clear()

@@ -211,6 +211,8 @@ def validate_context(context: dict[str, Any]) -> None:
     _require_nonempty_string(context.get("rule_id"), "rule_id")
     _require_nonempty_string(context.get("mdtrt_id"), "mdtrt_id")
     _require_object(context.get("review_basis"), "review_basis")
+    if "source_staging" in context and not isinstance(context["source_staging"], bool):
+        raise ReviewValidationError("source_staging必须是布尔值")
     propositions = _require_list(context.get("propositions"), "propositions")
     if not propositions:
         raise ReviewValidationError("propositions不能为空")
@@ -266,6 +268,24 @@ def validate_context(context: dict[str, Any]) -> None:
             if evidence.get("necessity") not in NECESSITIES:
                 raise ReviewValidationError(f"{key}的necessity无效")
             query_result = _require_object(evidence.get("query_result"), f"{key}.query_result")
+            if context.get("source_staging") is True or "source_groups" in query_result:
+                source_groups = _require_list(query_result.get("source_groups"), "source_groups")
+                group_refs: dict[str, set[str]] = {
+                    field: set() for field in ("document_refs", "structured_data_refs", "expense_summary_refs")
+                }
+                for raw_group in source_groups:
+                    group = _require_object(raw_group, "source_groups项")
+                    _require_nonempty_string(group.get("source"), "source_groups.source")
+                    if group.get("source_level") not in {"PRIMARY", "SECONDARY"}:
+                        raise ReviewValidationError("source_groups.source_level必须为PRIMARY或SECONDARY")
+                    if group.get("status") not in {"RETRIEVED", "NOT_RETRIEVED", "QUERY_SCOPE_UNRESOLVED"}:
+                        raise ReviewValidationError("source_groups.status无效")
+                    for field in group_refs:
+                        for reference in _require_list(group.get(field, []), f"source_groups.{field}"):
+                            group_refs[field].add(_require_nonempty_string(reference, field))
+                for field, references in group_refs.items():
+                    if references != set(_require_list(query_result.get(field, []), field)):
+                        raise ReviewValidationError(f"{key}.{field}与主次来源引用不一致")
             for document_ref in query_result.get("document_refs", []):
                 all_document_refs.add(_require_nonempty_string(document_ref, "document_ref"))
             summary_refs = query_result.get("expense_summary_refs", [])

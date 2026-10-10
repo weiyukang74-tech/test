@@ -144,6 +144,8 @@ def build_user_prompt(context: dict[str, Any], review_round: int) -> str:
     }
     return (
         "请严格依据系统提示词复核以下输入，并且只输出合法JSON对象。\n"
+        "若review_source_stage为PRIMARY，本次只使用已提供的主要来源证据，不得推测或引用未提供的次要来源；未合规结果由程序决定是否补充次要来源。"
+        "若为PRIMARY_AND_SECONDARY，综合当前全部主次证据独立重新判断，不沿用任何前一阶段结论。来源主次只表示取证优先级，不表示证明力强弱，不改变原始规则和上游logical_expression。\n"
         "本次复核必须以review_context.review_basis.violation_description中的原始规则为准，"
         "不得让后续proposition或target_fact新增原规则没有要求的‘诊断名称必须直接填写’条件。"
         "旧版target_fact即使只询问诊断名称、编码或字段是否存在，其缺失也只代表记录缺失；没有直接临床反证时，"

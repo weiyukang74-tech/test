@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from .prompt import (
     load_system_prompt,
 )
 from .schema import load_model_schema
+from .source_staging import primary_source_context
 from .validation import (
     ExpressionParser,
     ReviewValidationError,
@@ -59,8 +61,10 @@ class ReviewService:
         self.schema = load_model_schema()
         self.metrics = []
         self.citation_repair_attempted = False
+        self.citation_repair_count = 0
         self.citation_degraded_fact_count = 0
         self.citation_repair_error: str | None = None
+        self.source_review_stages = 0
 
     @staticmethod
     def load_context(path: Path) -> dict[str, Any]:
@@ -80,8 +84,38 @@ class ReviewService:
         validate_context(context)
         self.metrics = []
         self.citation_repair_attempted = False
+        self.citation_repair_count = 0
         self.citation_degraded_fact_count = 0
         self.citation_repair_error = None
+        self.source_review_stages = 0
+        if context.get("source_staging") is True:
+            print("开始第一阶段复核：仅提供主要来源证据", flush=True)
+            primary_context = primary_source_context(context)
+            result = self._review_context(primary_context, review_round)
+            if result["final_conclusion"]["result"] == "合规" and result["final_conclusion"]["is_final"]:
+                print("主要来源已判合规，不再提供次要来源", flush=True)
+                return result
+            has_secondary = any(
+                group["source_level"] == "SECONDARY"
+                for proposition in context["propositions"]
+                for fact in proposition["evidence"]
+                for group in fact["query_result"]["source_groups"]
+            )
+            if has_secondary:
+                print("主要来源未判合规，开始第二阶段复核：提供主次全部证据，独立重新判断", flush=True)
+                full_context = deepcopy(context)
+                full_context["review_source_stage"] = "PRIMARY_AND_SECONDARY"
+                return self._review_context(full_context, review_round)
+            print("没有次要来源，返回主要来源复核结果", flush=True)
+            return result
+        print("旧版上下文未标记主次来源，按原方式提供全部证据；重新运行查询程序可启用分阶段复核", flush=True)
+        return self._review_context(deepcopy(context), review_round)
+
+    def _review_context(
+        self, context: dict[str, Any], review_round: int
+    ) -> dict[str, Any]:
+        validate_context(context)
+        self.source_review_stages += 1
         system_prompt = load_system_prompt()
         print("复核上下文校验完成，开始首次复核模型调用", flush=True)
         model_result = self.client.generate(
@@ -290,6 +324,7 @@ class ReviewService:
             return
 
         self.citation_repair_attempted = True
+        self.citation_repair_count += 1
         print(
             f"发现{len(issues)}个无法校验的引用，开始引用专项修复模型调用",
             flush=True,

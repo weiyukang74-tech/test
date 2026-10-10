@@ -52,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--secondary-mode",
         choices=("auto", "deferred", "always"),
-        default="auto",
-        help="auto=主要来源缺失时自动补查；deferred=暂不查次要来源；always=始终查询",
+        default="always",
+        help="always=查询主次全部来源（默认）；auto=兼容别名，同样查询全部；deferred=仅查询主要来源",
     )
     return parser
 

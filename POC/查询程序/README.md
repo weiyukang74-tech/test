@@ -12,7 +12,7 @@
 6. 命中的病程记录完整保留 `recordContent`，不再提取公共部分；入院记录、出院记录、手术记录等非病程文书保持原有处理；
 7. 病程整体零命中、任一必需证据计划零命中、计划缺失、计划无效或计划不完整时，回退返回全部候选病程，并在 `medical_record_filter` 中记录原因；补充证据计划零命中时不回退整条规则，但保留该证据项自身的全部候选病程；
 8. 首先执行主要来源；
-9. 主要来源无数据、视图不可用或预期字段缺失时，自动查询次要来源；
+9. 默认查询主次全部来源，主要来源有数据时也保留次要来源；`--secondary-mode auto` 与 `always` 均执行全部来源，`deferred` 显式仅查询主要来源；
 10. 查询程序不判断医学事实和申诉命题，关键词命中不代表证据成立。
 
 ## 运行
@@ -55,6 +55,8 @@ C:\Users\weyk\anaconda3\python.exe -m evidence_retriever `
 规则级 `medical_record_filter` 提供过滤前候选数、过滤后选中数、计划证据数、实际命中证据数、必需证据覆盖数、是否真正执行过滤、是否回退和回退原因。`NO_KEYWORD_MATCH` 表示没有词根命中，`INCOMPLETE_FILTER_PLAN` 表示至少一个需要病程的证据项缺少有效计划，`INCOMPLETE_FILTER_COVERAGE` 表示至少一个必需证据计划零命中；这些情况都会安全返回全部候选病程。计划缺失、无效或不完整时 `enabled=false`，旧版公共部分处理保持不变。`ignored_search_terms` 列出被忽略的标签名称和无区分度词根；词根全部被忽略的计划按无效计划处理。`supplementary_evidence_fallbacks` 列出零命中后保留全部候选病程的补充证据项，这些病程不带命中字段。两个字段只在非空时输出。
 
 查询结果写入完成后，程序会继续生成复核上下文。复核上下文以命题为中心合并规则判断依据与查询结果。重复结构化记录只在 `structured_data_pool` 中保存一次，并通过 `structured_data_refs` 引用；重复病历原文只在 `medical_documents` 中保存一次，并通过 `document_refs` 引用。
+
+查询结果通过每条数据的 `_query_sources` 标注来源及 `source_level`（`PRIMARY`/`SECONDARY`）。生成上下文时不把这些元数据混入临床字段，而是保存每个事实的 `query_result.source_groups`，分组包含来源级别、查询状态及对应文书/结构化记录/费用摘要引用。主次来源属于事实与来源的关联，同一文书可被不同事实按不同级别引用。上下文顶层 `source_staging=true` 启用先主要、未合规再主次全部的分阶段复核。需重新运行查询程序生成带级别的新上下文；原有病例文件不会自动改写。
 
 ## 测试
 

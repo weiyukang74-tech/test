@@ -66,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"模型：{settings.model_name}（{settings.model_param_scale}）")
         print(f"复核状态：{result['review_status']}")
         print(f"案件状态：{result['case_status']}")
+        print(f"来源复核阶段数：{service.source_review_stages}")
         print(f"模型整体输出时间：{model_elapsed_seconds:.2f} 秒")
         for index, metrics in enumerate(service.metrics, start=1):
             first_token = (
@@ -88,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"总Token={metrics.total_tokens if metrics.total_tokens is not None else '未获取'}"
             )
         if service.citation_repair_attempted:
-            print("引用专项修复：已执行 1 次")
+            print(f"引用专项修复：已执行 {service.citation_repair_count} 次")
         if service.citation_degraded_fact_count:
             print(
                 "引用安全降级："

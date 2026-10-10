@@ -287,21 +287,30 @@ def filter_rule_medical_records(
             query_result = evidence.get("query_result", {})
             filtered_records: list[dict[str, object]] = []
             selected_identities: set[str] = set()
+            selected_records: dict[str, dict[str, object]] = {}
             for record in query_result.get("data", []):
                 if not isinstance(record, dict) or not is_progress_record(record):
                     filtered_records.append(record)
                     continue
                 identity = medical_record_identity(record)
                 record_matches = matches_by_identity.get(identity)
-                if identity in selected_identities or (
-                    record_matches is None and not keep_unmatched
-                ):
+                if identity in selected_identities:
+                    previous = selected_records[identity]
+                    for source_entry in record.get("_query_sources", []):
+                        source_entries = previous.setdefault("_query_sources", [])
+                        if source_entry not in source_entries:
+                            source_entries.append(source_entry)
+                    continue
+                if record_matches is None and not keep_unmatched:
                     continue
                 selected_identities.add(identity)
-                if record_matches is None:
-                    filtered_records.append(record)
-                    continue
                 selected_record = dict(record)
+                if "_query_sources" in record:
+                    selected_record["_query_sources"] = list(record["_query_sources"])
+                selected_records[identity] = selected_record
+                if record_matches is None:
+                    filtered_records.append(selected_record)
+                    continue
                 selected_record["_medical_record_filter_match"] = _match_metadata(
                     record_matches
                 )

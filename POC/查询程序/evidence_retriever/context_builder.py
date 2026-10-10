@@ -139,12 +139,16 @@ class StructuredDataCollector:
 
     def add(self, source: str, record: dict[str, Any]) -> str:
         compact_record = _remove_empty_values(record)
-        identity = json.dumps(compact_record, ensure_ascii=False, sort_keys=True)
+        source_code = source.strip().split(maxsplit=1)[0] if source.strip() else "UNKNOWN"
+        identity = json.dumps(
+            {"source_code": source_code, "record": compact_record},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         existing_id = self.record_ids.get(identity)
         if existing_id is not None:
             return existing_id
 
-        source_code = source.strip().split(maxsplit=1)[0] if source.strip() else "UNKNOWN"
         mdtrt_id = str(compact_record.get("mdtrtId", compact_record.get("mdtrt_id", "UNKNOWN")))
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
         record_id = f"SD-{source_code}-{mdtrt_id}-{digest}"
@@ -245,6 +249,52 @@ def _compact_query_result(
     summary_collector: ExpenseSummaryCollector,
     field_dictionary: StandardViewFieldDictionary,
 ) -> dict[str, Any]:
+    if "source_groups" in query_result:
+        compact_groups: list[dict[str, Any]] = []
+        for group in query_result["source_groups"]:
+            source_entry = {"source": group["source"], "source_level": group["source_level"]}
+            records = [
+                {key: value for key, value in record.items() if key != "_query_sources"}
+                for record in query_result.get("data", [])
+                if source_entry in record.get("_query_sources", [])
+            ]
+            grouped_query = {
+                key: value for key, value in group.items() if key != "source_level"
+            }
+            grouped_query["data"] = records
+            grouped_query["status"] = (
+                "RETRIEVED" if records
+                else "QUERY_SCOPE_UNRESOLVED" if group.get("query_scope_status") == "QUERY_SCOPE_UNRESOLVED"
+                else "NOT_RETRIEVED"
+            )
+            compact_groups.append(
+                {
+                    "source_level": group["source_level"],
+                    **_compact_query_result(
+                        grouped_query,
+                        target_fact,
+                        document_collector,
+                        structured_collector,
+                        summary_collector,
+                        field_dictionary,
+                    ),
+                }
+            )
+        compact = {
+            "status": query_result.get("status"),
+            "source": query_result.get("source"),
+            "source_groups": compact_groups,
+        }
+        for field in ("query_scope_status", "query_scope_reason"):
+            if query_result.get(field):
+                compact[field] = query_result[field]
+        for field in ("document_refs", "structured_data_refs", "expense_summary_refs"):
+            references = list(dict.fromkeys(
+                reference for group in compact_groups for reference in group.get(field, [])
+            ))
+            if references or any(field in group for group in compact_groups):
+                compact[field] = references
+        return compact
     source = query_result.get("source")
     compact: dict[str, Any] = {
         "status": query_result.get("status"),
@@ -395,6 +445,10 @@ def _build_rule_context(
         "medical_documents": medical_documents,
         "medical_document_groups": medical_document_groups,
         "program_checks": source_result.get("program_checks", []),
+        "source_staging": all(
+            "source_groups" in fact["query_result"]
+            for proposition in propositions for fact in proposition["evidence"]
+        ),
     }
     if isinstance(medical_filter, dict):
         context["medical_record_filter"] = medical_filter
